@@ -1,0 +1,201 @@
+services:
+
+  # ==============================================================
+  # POSTGRESQL
+  # ==============================================================
+
+  postgres:
+    image: postgres:16
+
+    container_name: datamind-postgres
+
+    restart: unless-stopped
+
+    environment:
+      POSTGRES_DB: datamind
+      POSTGRES_USER: datamind
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-datamind_dev}
+
+    ports:
+      - "5433:5432"
+
+    volumes:
+      - datamind_postgres_data:/var/lib/postgresql/data
+
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "pg_isready -U datamind -d datamind"
+        ]
+
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+
+  # ==============================================================
+  # PGADMIN
+  # ==============================================================
+
+  pgadmin:
+    image: dpage/pgadmin4:latest
+
+    container_name: pgadmin
+
+    restart: unless-stopped
+
+    environment:
+      PGADMIN_DEFAULT_EMAIL: ${PGADMIN_DEFAULT_EMAIL}
+      PGADMIN_DEFAULT_PASSWORD: ${POSTGRES_PASSWORD}
+
+    env_file:
+      - .env
+
+    ports:
+      - "5050:80"
+
+    depends_on:
+      - postgres
+
+
+  # ==============================================================
+  # OLLAMA
+  # ==============================================================
+
+  ollama:
+    image: ollama/ollama:latest
+
+    container_name: datamind-ollama
+
+    restart: unless-stopped
+
+    ports:
+      - "11434:11434"
+
+    volumes:
+      - ollama_data:/root/.ollama
+
+
+  # ==============================================================
+  # FASTAPI
+  # ==============================================================
+
+  api:
+    build: .
+
+    container_name: datamind-api
+
+    restart: unless-stopped
+
+    env_file:
+      - .env
+
+    environment:
+
+      # ------------------------------------------------------------
+      # Banco de dados
+      # ------------------------------------------------------------
+
+      DATABASE_URL: >-
+        postgresql+psycopg://datamind:${POSTGRES_PASSWORD:-datamind_dev}@postgres:5432/datamind
+
+      # ------------------------------------------------------------
+      # Provedor de IA
+      # ------------------------------------------------------------
+
+      AI_PROVIDER: ${AI_PROVIDER:-ollama}
+
+      # ------------------------------------------------------------
+      # Hugging Face
+      # ------------------------------------------------------------
+
+      HF_TOKEN: ${HF_TOKEN}
+      HF_MODEL: ${HF_MODEL:-openai/gpt-oss-120b}
+
+      # ------------------------------------------------------------
+      # Ollama
+      # ------------------------------------------------------------
+
+      OLLAMA_URL: http://ollama:11434
+
+      OLLAMA_MODEL: ${OLLAMA_MODEL:-qwen3:4b}
+
+    ports:
+      - "8000:8000"
+
+    depends_on:
+
+      postgres:
+        condition: service_healthy
+
+      ollama:
+        condition: service_started
+
+
+  # ==============================================================
+  # FRONTEND FLET
+  # ==============================================================
+
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+
+    container_name: datamind-frontend
+
+    # Executa o objeto "app" existente em:
+    #
+    # app/frontend/main.py
+    #
+    command:
+      - uvicorn
+      - app.frontend.main:app
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8550"
+
+    depends_on:
+      api:
+        condition: service_started
+
+    environment:
+      APP_NAME: DataMind AI Studio
+      APP_VERSION: 0.1.0
+      ENVIRONMENT: development
+
+      # API acessada pelo frontend dentro da rede Docker.
+      API_URL: http://api:8000
+
+      # Provedor padrão.
+      AI_PROVIDER: ollama
+
+      # Ollama.
+      OLLAMA_URL: http://ollama:11434
+      OLLAMA_MODEL: qwen2.5-coder:3b
+
+      # Hugging Face.
+      HF_MODEL: openai/gpt-oss-120b
+      HF_TOKEN: ${HF_TOKEN}
+
+      # PostgreSQL.
+      DATABASE_URL: postgresql+psycopg://datamind:datamind_dev@postgres:5432/datamind
+
+    ports:
+      - "8550:8550"
+
+    networks:
+      - default
+
+    restart: unless-stopped
+
+# ================================================================
+# VOLUMES
+# ================================================================
+
+volumes:
+
+  datamind_postgres_data:
+
+  ollama_data:

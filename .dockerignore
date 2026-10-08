@@ -1,0 +1,9 @@
+# Evita copiar arquivos desnecessários para a imagem.
+.git
+.venv
+venv
+__pycache__
+.pytest_cache
+.env
+.vscode
+*.pyc
